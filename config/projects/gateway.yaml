@@ -1,0 +1,12 @@
+project:
+  id: gateway
+  name: Gateway
+  description: Automotive Gateway ECU project configuration.
+
+features:
+  diagnostics:
+    enabled: true
+  nvm:
+    enabled: true
+  communication:
+    enabled: true

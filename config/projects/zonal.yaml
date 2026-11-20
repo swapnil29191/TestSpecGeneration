@@ -1,0 +1,12 @@
+project:
+  id: zonal
+  name: Zonal
+  description: Automotive Zonal ECU project configuration.
+
+features:
+  diagnostics:
+    enabled: true
+  nvm:
+    enabled: true
+  power_management:
+    enabled: true

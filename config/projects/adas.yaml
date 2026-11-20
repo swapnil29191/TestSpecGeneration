@@ -1,0 +1,12 @@
+project:
+  id: adas
+  name: ADAS
+  description: Advanced Driver Assistance Systems project configuration.
+
+features:
+  diagnostics:
+    enabled: true
+  sensor_interfaces:
+    enabled: true
+  system_monitoring:
+    enabled: true
