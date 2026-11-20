@@ -1,0 +1,24 @@
+# ── Devmate AI (OpenAI-compatible) credentials ────────────────────
+DEVMATE_API_KEY=
+DEVMATE_BASE_URL=https://devmate.bosch.com/api/v3
+# Static model or agent_id (not user-selectable at runtime)
+DEVMATE_MODEL=<agent_id for Default>
+
+# ── Per-project CAPL generation agent overrides (optional) ────────
+# Each project can use a different Devmate agent_id; falls back to
+# DEVMATE_MODEL above when the project-specific var is unset.
+DEVMATE_MODEL_PNG=
+DEVMATE_MODEL_GATEWAY=
+DEVMATE_MODEL_BCM=
+
+DEVMATE_MODEL_XCP=<agent_id for XCP>
+DEVMATE_MODEL_SYNTAX=<agent_id for Syntax check>
+DEVMATE_MODEL_COMPLETE=<agent_id for Complete>
+
+# ── Request / network settings ────────────────────────────────────
+DEVMATE_CONNECT_TIMEOUT=10
+DEVMATE_REQUEST_TIMEOUT=300
+DEVMATE_MAX_RETRIES=2
+
+# ── Corporate proxy (optional) ────────────────────────────────────
+DEVMATE_PROXY_URL=http://rb-proxy-apac.bosch.com:8080
