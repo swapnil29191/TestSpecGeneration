@@ -10,12 +10,20 @@ from .errors import EnterpriseAIConfigurationError
 
 load_dotenv()
 
-AGENT_ENV_SUFFIXES = (
+MANDATORY_AGENT_ENV_SUFFIXES = (
+    ("requirement_clarifier", "REQUIREMENT_CLARIFIER_AGENT_ID"),
     ("requirement_analyzer", "REQUIREMENT_ANALYZER_AGENT_ID"),
     ("feature_analyzer", "FEATURE_ANALYZER_AGENT_ID"),
     ("testspec_generator", "TESTSPEC_GENERATOR_AGENT_ID"),
     ("testspec_reviewer", "TESTSPEC_REVIEWER_AGENT_ID"),
 )
+
+# Optional: skipped when not configured for a project instead of blocking the workflow.
+OPTIONAL_AGENT_ENV_SUFFIXES = (
+    ("historical_context_agent", "HISTORICAL_CONTEXT_AGENT_ID"),
+)
+
+AGENT_ENV_SUFFIXES = MANDATORY_AGENT_ENV_SUFFIXES + OPTIONAL_AGENT_ENV_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -96,13 +104,18 @@ class EnterpriseAISettings:
         ).upper()
         agents: dict[str, str] = {}
         missing: list[str] = []
-        for role, suffix in AGENT_ENV_SUFFIXES:
+        for role, suffix in MANDATORY_AGENT_ENV_SUFFIXES:
             key = f"{project_prefix}_{suffix}"
             value = self.environment.get(key, "").strip()
             if value:
                 agents[role] = value
             else:
                 missing.append(key)
+        for role, suffix in OPTIONAL_AGENT_ENV_SUFFIXES:
+            key = f"{project_prefix}_{suffix}"
+            value = self.environment.get(key, "").strip()
+            if value:
+                agents[role] = value
         if missing:
             raise EnterpriseAIConfigurationError(
                 f"Agent configuration for project '{project}' is incomplete. Missing: "

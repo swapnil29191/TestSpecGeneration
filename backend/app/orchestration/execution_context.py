@@ -7,7 +7,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 AgentStatus = Literal["pending", "running", "completed", "failed", "skipped"]
-WorkflowStatus = Literal["running", "completed", "failed"]
+WorkflowStatus = Literal["running", "awaiting_clarification", "completed", "failed"]
 
 
 def utc_now() -> datetime:
@@ -50,6 +50,7 @@ class WorkflowExecution(BaseModel):
 
     execution_id: str = Field(default_factory=lambda: str(uuid4()))
     project: str
+    requirements: str
     workflow: str = "test_specification"
     status: WorkflowStatus = "running"
     started_at: datetime = Field(default_factory=utc_now)
@@ -60,6 +61,9 @@ class WorkflowExecution(BaseModel):
     final_reviewed_output: str | None = None
     error: AgentExecutionError | None = None
     summary: WorkflowExecutionSummary
+    open_questions: list[str] = Field(default_factory=list)
+    resolved_from_history: list[str] = Field(default_factory=list)
+    clarification_answers: dict[str, str] | None = None
 
 
 class ExecutionContext:
@@ -68,10 +72,12 @@ class ExecutionContext:
     def __init__(
         self,
         project: str,
+        requirements: str,
         steps: list[tuple[str, str, str, str]],
     ) -> None:
         self.execution = WorkflowExecution(
             project=project,
+            requirements=requirements,
             agent_executions=[
                 AgentExecutionRecord(
                     key=key,
@@ -87,6 +93,13 @@ class ExecutionContext:
                 skipped_agents=0,
             ),
         )
+
+    @classmethod
+    def from_execution(cls, execution: WorkflowExecution) -> "ExecutionContext":
+        """Wrap an existing (e.g. paused) execution to continue mutating it."""
+        context = cls.__new__(cls)
+        context.execution = execution
+        return context
 
     def start(self, record: AgentExecutionRecord) -> None:
         record.status = "running"
@@ -126,6 +139,25 @@ class ExecutionContext:
             if record.status == "pending":
                 record.status = "skipped"
                 self.execution.summary.skipped_agents += 1
+
+    def skip_optional(self, record: AgentExecutionRecord) -> None:
+        """Skip one unconfigured optional stage without failing the workflow."""
+        record.status = "skipped"
+        self.execution.summary.skipped_agents += 1
+
+    def pause_for_clarification(
+        self,
+        open_questions: list[str],
+        resolved_from_history: list[str],
+    ) -> None:
+        self.execution.status = "awaiting_clarification"
+        self.execution.open_questions = open_questions
+        self.execution.resolved_from_history = resolved_from_history
+
+    def apply_clarification_answers(self, answers: dict[str, str]) -> None:
+        self.execution.clarification_answers = answers
+        self.execution.open_questions = []
+        self.execution.status = "running"
 
     def finish(self) -> None:
         if self.execution.status != "failed":

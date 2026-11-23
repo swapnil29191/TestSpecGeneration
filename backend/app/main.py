@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.routes import agents, health, projects, workflow
+from backend.app.orchestration.execution_store import ExecutionStore
 from backend.app.settings import get_settings
 
 
@@ -15,6 +16,8 @@ def create_app() -> FastAPI:
         description="Backend API for the Automotive Test Specification Generation application.",
     )
     application.state.settings = settings
+    application.state.execution_store = ExecutionStore()
+    application.state.background_tasks = set()
 
     application.add_middleware(
         CORSMiddleware,

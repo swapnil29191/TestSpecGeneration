@@ -1,6 +1,7 @@
 """Streamlit frontend entry point."""
 
 import os
+import time
 
 import requests
 import streamlit as st
@@ -16,12 +17,7 @@ st.set_page_config(
 )
 
 BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-WORKFLOW_LABELS = (
-    "Requirement Analyzer",
-    "Feature Context Analyzer",
-    "Test Specification Generator",
-    "Test Specification Reviewer",
-)
+_TERMINAL_STATUSES = {"completed", "failed", "awaiting_clarification"}
 
 
 @st.cache_data(ttl=15)
@@ -57,6 +53,35 @@ def error_message(response: requests.Response) -> str:
     if isinstance(detail, dict):
         return str(detail.get("message") or detail)
     return str(detail)
+
+
+def poll_workflow(execution_id: str, progress, stage_status) -> dict:
+    """Poll the backend for real agent-by-agent progress until a terminal state."""
+    poll_interval = float(os.getenv("WORKFLOW_POLL_INTERVAL_SECONDS", "1.5"))
+    max_polls = int(os.getenv("WORKFLOW_MAX_POLL_ATTEMPTS", "400"))
+    execution: dict = {}
+    for _ in range(max_polls):
+        response = requests.get(
+            f"{BACKEND_BASE_URL}/api/v1/workflow/executions/{execution_id}",
+            timeout=10,
+        )
+        if not response.ok:
+            stage_status.error(f"Could not retrieve workflow status: {error_message(response)}")
+            return execution
+        execution = response.json()
+        records = execution.get("agent_executions", [])
+        total = len(records) or 1
+        finished = sum(1 for record in records if record["status"] in {"completed", "failed", "skipped"})
+        running_record = next((record for record in records if record["status"] == "running"), None)
+        progress.progress(
+            min(int(finished / total * 100), 100),
+            text=f"Running: {running_record['label']}" if running_record else "Processing...",
+        )
+        if execution.get("status") in _TERMINAL_STATUSES:
+            return execution
+        time.sleep(poll_interval)
+    stage_status.warning("Stopped polling after the maximum number of attempts.")
+    return execution
 
 
 st.title("TestSpecGeneration")
@@ -148,42 +173,75 @@ if st.button(
     if not requirements.strip():
         st.error("Enter at least one requirement before starting the workflow.")
     else:
-        progress = st.progress(0, text="Starting sequential workflow...")
-        stage_status = st.empty()
-        stage_status.info(f"Current stage: {WORKFLOW_LABELS[0]}")
-        with st.spinner("Executing enterprise agents in sequence..."):
-            response = requests.post(
-                f"{BACKEND_BASE_URL}/api/v1/workflow/test-specification",
-                json={"project": project_id, "requirements": requirements},
-                timeout=int(os.getenv("WORKFLOW_REQUEST_TIMEOUT_SECONDS", "600")),
-            )
-        try:
-            execution = response.json()
-        except ValueError:
-            execution = {}
-        st.session_state["workflow_execution"] = execution
-        if response.ok and execution.get("status") == "completed":
-            progress.progress(100, text="Workflow completed.")
-            stage_status.success("All four agents completed successfully.")
-        elif execution.get("execution_id"):
-            failed_record = next(
-                (
-                    record
-                    for record in execution.get("agent_executions", [])
-                    if record.get("status") == "failed"
-                ),
-                None,
-            )
-            failed_stage = failed_record["label"] if failed_record else "Unknown stage"
-            completed = execution.get("summary", {}).get("completed_agents", 0)
-            progress.progress(int(completed / 4 * 100), text=f"Stopped at {failed_stage}")
-            stage_status.error(
-                f"Workflow failed at {failed_stage}: "
-                f"{(failed_record or {}).get('error', {}).get('message', error_message(response))}"
-            )
+        start_response = requests.post(
+            f"{BACKEND_BASE_URL}/api/v1/workflow/test-specification",
+            json={"project": project_id, "requirements": requirements},
+            timeout=30,
+        )
+        if not start_response.ok:
+            st.error(f"Could not start workflow: {error_message(start_response)}")
         else:
-            progress.empty()
-            stage_status.error(f"Workflow request failed: {error_message(response)}")
+            progress = st.progress(0, text="Starting sequential workflow...")
+            stage_status = st.empty()
+            execution_id = start_response.json()["execution_id"]
+            execution = poll_workflow(execution_id, progress, stage_status)
+            st.session_state["workflow_execution"] = execution
+            if execution.get("status") == "completed":
+                progress.progress(100, text="Workflow completed.")
+                stage_status.success("All agents completed successfully.")
+            elif execution.get("status") == "awaiting_clarification":
+                stage_status.warning(
+                    "The requirement clarifier needs more information before continuing."
+                )
+            elif execution.get("status") == "failed":
+                failed_record = next(
+                    (
+                        record
+                        for record in execution.get("agent_executions", [])
+                        if record.get("status") == "failed"
+                    ),
+                    None,
+                )
+                failed_stage = failed_record["label"] if failed_record else "Unknown stage"
+                stage_status.error(
+                    f"Workflow failed at {failed_stage}: "
+                    f"{(failed_record or {}).get('error', {}).get('message', 'Unknown error')}"
+                )
+
+execution = st.session_state.get("workflow_execution")
+if execution and execution.get("status") == "awaiting_clarification":
+    st.subheader("Requirement clarification needed")
+    if execution.get("resolved_from_history"):
+        st.info(
+            "Resolved from prior project knowledge:\n"
+            + "\n".join(f"- {item}" for item in execution["resolved_from_history"])
+        )
+    open_questions = execution.get("open_questions", [])
+    answers: dict[str, str] = {}
+    for index, question in enumerate(open_questions):
+        answers[question] = st.text_area(
+            question, key=f"clarification_{execution['execution_id']}_{index}"
+        )
+    if st.button("Submit answers and continue", use_container_width=True):
+        if not all(value.strip() for value in answers.values()):
+            st.error("Answer every open question before continuing.")
+        else:
+            resume_response = requests.post(
+                f"{BACKEND_BASE_URL}/api/v1/workflow/executions/{execution['execution_id']}/clarifications",
+                json={"answers": answers},
+                timeout=30,
+            )
+            if not resume_response.ok:
+                st.error(f"Could not submit answers: {error_message(resume_response)}")
+            else:
+                progress = st.progress(0, text="Resuming workflow...")
+                stage_status = st.empty()
+                execution = poll_workflow(execution["execution_id"], progress, stage_status)
+                st.session_state["workflow_execution"] = execution
+                if execution.get("status") == "completed":
+                    progress.progress(100, text="Workflow completed.")
+                    stage_status.success("All agents completed successfully.")
+                st.rerun()
 
 execution = st.session_state.get("workflow_execution")
 if execution and execution.get("execution_id"):

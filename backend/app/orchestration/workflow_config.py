@@ -28,21 +28,55 @@ class WorkflowStep:
             "requirements": requirements,
         }
         for dependency in self.dependencies:
-            payload[dependency] = prior_outputs[dependency]
+            # Optional dependencies (e.g. historical context) may not have run.
+            payload[dependency] = prior_outputs.get(dependency, "")
         return payload
 
 
 TEST_SPECIFICATION_WORKFLOW = (
     WorkflowStep(
+        key="historical_context",
+        role="historical_context_agent",
+        label="Historical Project Context",
+        output_key="historical_context",
+        mandatory=False,
+        instruction=(
+            "Using knowledge available to this agent from previously completed similar "
+            "automotive projects, identify requirement gaps, ambiguities and clarification "
+            "points already resolved in earlier similar projects that are directly relevant "
+            "to the requirements provided. State clearly when nothing relevant is found. "
+            "Do not invent project history that is not actually known."
+        ),
+    ),
+    WorkflowStep(
+        key="requirement_clarifier",
+        role="requirement_clarifier",
+        label="Requirement Clarifier",
+        output_key="requirement_clarification",
+        dependencies=("historical_context",),
+        instruction=(
+            "Using the original requirements and any historical project context, determine "
+            "whether the requirements are sufficiently clear to proceed to analysis. Respond "
+            "with strict JSON only, no prose, no markdown fences, in the exact form "
+            '{"status": "clear" | "needs_clarification", '
+            '"resolved_from_history": [string, ...], "open_questions": [string, ...]}. '
+            "Only list questions that could not be resolved from historical context. Set "
+            'status to "clear" only when open_questions is empty.'
+        ),
+    ),
+    WorkflowStep(
         key="requirement_analyzer",
         role="requirement_analyzer",
         label="Requirement Analyzer",
         output_key="requirement_analysis",
+        dependencies=("historical_context", "requirement_clarification", "clarification_answers"),
         instruction=(
             "Analyze the complete requirement set for completeness, ambiguity, missing "
             "preconditions and postconditions, unclear operating conditions, testability, "
             "interfaces, dependencies, constraints, conflicts, clarification questions, "
-            "and safety-related verification gaps. Do not invent missing behavior."
+            "and safety-related verification gaps. Treat the supplied historical context "
+            "and any user-provided clarification answers as authoritative context. Do not "
+            "invent missing behavior."
         ),
     ),
     WorkflowStep(
