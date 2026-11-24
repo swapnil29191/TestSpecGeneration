@@ -26,7 +26,7 @@ AGENT_IDS = {
 CLARIFIER_CLEAR = '{"status": "clear", "open_questions": [], "resolved_from_history": []}'
 CLARIFIER_NEEDS_INPUT = (
     '{"status": "needs_clarification", '
-    '"resolved_from_history": ["Braking torque range confirmed from ADAS-12."], '
+    '"resolved_from_history": ["Braking torque range confirmed from PNG-12."], '
     '"open_questions": ["What is the expected response time under low voltage?"]}'
 )
 
@@ -90,19 +90,19 @@ async def test_optional_historical_context_agent_runs_when_configured() -> None:
     client = FakeAgentClient(
         responses={
             AGENT_IDS["requirement_clarifier"]: CLARIFIER_CLEAR,
-            "agent-history": "Prior ADAS project resolved a similar braking ambiguity.",
+            "agent-history": "Prior PNG project resolved a similar braking ambiguity.",
         }
     )
     engine = WorkflowEngine(client, TEST_SPECIFICATION_WORKFLOW)  # type: ignore[arg-type]
 
-    execution = await engine.execute_workflow("adas", "REQ-9", agent_ids)
+    execution = await engine.execute_workflow("png", "REQ-9", agent_ids)
 
     assert execution.status == "completed"
     assert execution.agent_executions[0].status == "completed"
     assert client.calls[0][0] == "agent-history"
     assert (
         client.calls[1][1]["historical_context"]
-        == "Prior ADAS project resolved a similar braking ambiguity."
+        == "Prior PNG project resolved a similar braking ambiguity."
     )
 
 
@@ -185,7 +185,7 @@ async def test_clarifier_pauses_workflow_when_open_questions_remain() -> None:
         "What is the expected response time under low voltage?"
     ]
     assert execution.resolved_from_history == [
-        "Braking torque range confirmed from ADAS-12."
+        "Braking torque range confirmed from PNG-12."
     ]
     assert len(client.calls) == 1
     assert execution.agent_executions[2].status == "pending"
@@ -217,7 +217,7 @@ async def test_workflow_rejects_missing_agent_role() -> None:
 
     with pytest.raises(ValueError, match="testspec_reviewer"):
         await engine.execute_workflow(
-            "adas",
+            "png",
             "REQ-3",
             {key: value for key, value in AGENT_IDS.items() if key != "testspec_reviewer"},
         )

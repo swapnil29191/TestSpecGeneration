@@ -42,7 +42,7 @@ def poll_until_terminal(
 def configured_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("ENTERPRISE_AI_BASE_URL", "https://enterprise.invalid/v1")
     monkeypatch.setenv("ENTERPRISE_AI_API_KEY", "test-key")
-    for project in ("GATEWAY", "ZONAL", "ADAS"):
+    for project in ("GATEWAY", "ZONAL", "PNG"):
         monkeypatch.setenv(f"{project}_REQUIREMENT_CLARIFIER_AGENT_ID", f"{project}-0")
         monkeypatch.setenv(f"{project}_REQUIREMENT_ANALYZER_AGENT_ID", f"{project}-1")
         monkeypatch.setenv(f"{project}_FEATURE_ANALYZER_AGENT_ID", f"{project}-2")

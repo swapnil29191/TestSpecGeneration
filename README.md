@@ -5,7 +5,7 @@ A local, single-user Automotive V&V application that uses a FastAPI backend to o
 ## Phase 2 scope
 
 - Existing Phase 1 health and YAML project APIs remain available.
-- Gateway, Zonal and ADAS can each use independently configured agent IDs: a mandatory requirement
+- Gateway, Zonal and PNG can each use independently configured agent IDs: a mandatory requirement
   clarifier, requirement analyzer, feature analyzer, test specification generator and reviewer, plus
   an optional historical-project-context agent.
 - Agents execute in strict sequence: optional historical context, requirement clarification,
@@ -73,7 +73,7 @@ GATEWAY_TESTSPEC_REVIEWER_AGENT_ID=
 GATEWAY_HISTORICAL_CONTEXT_AGENT_ID=
 ```
 
-Repeat the role-specific variables with `ZONAL_` and `ADAS_` prefixes for those projects. Empty or
+Repeat the role-specific variables with `ZONAL_` and `PNG_` prefixes for those projects. Empty or
 partially configured mandatory agent mappings are rejected before a workflow begins. The historical
 context agent is optional and is simply skipped when its ID is not set. The mapping derives from the
 normalized project ID and the role suffix, so additional projects can be configured without

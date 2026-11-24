@@ -1,5 +1,6 @@
 """Streamlit frontend entry point."""
 
+import json
 import os
 import time
 
@@ -130,12 +131,28 @@ project_id = selected_project["id"]
 
 st.write(selected_project.get("description", ""))
 features = selected_project.get("features", [])
-if features:
-    selected_feature = st.selectbox("Select feature", features)
-    st.session_state["selected_project_id"] = project_id
-    st.session_state["selected_feature_id"] = selected_feature
+ADD_NEW_FEATURE_OPTION = "+ Add a new feature..."
+feature_choice = st.selectbox("Select feature", features + [ADD_NEW_FEATURE_OPTION])
+
+custom_feature_description = ""
+if feature_choice == ADD_NEW_FEATURE_OPTION:
+    selected_feature = st.text_input(
+        "New feature name", placeholder="e.g. trailer_detection"
+    ).strip()
+    custom_feature_description = st.text_area(
+        "Feature description",
+        placeholder=(
+            "Describe what this feature does, its interfaces/operating modes and any "
+            "constraints — this is included as context when generating the test specification."
+        ),
+    ).strip()
+    if not selected_feature:
+        st.warning("Enter a name for the new feature before continuing.")
 else:
-    st.warning("This project currently has no enabled features.")
+    selected_feature = feature_choice
+
+st.session_state["selected_project_id"] = project_id
+st.session_state["selected_feature_id"] = selected_feature
 
 project_agents = agent_status.get("configured_agents", {}).get(project_id, {})
 if project_agents:
@@ -157,12 +174,99 @@ if project_agents:
 else:
     st.warning("Configure all four agent IDs for this project to enable connection testing and execution.")
 
+st.subheader("Requirements")
+st.caption(
+    "Upload one or more DNG Excel requirement exports (System / Software / Supporting-Interface), "
+    "or enter requirements manually below. Uploaded files take precedence when both are provided."
+)
+
+uploaded_files = st.file_uploader(
+    "DNG Excel requirement exports",
+    type=["xlsx", "xlsm"],
+    accept_multiple_files=True,
+)
+
+category_by_file: dict[str, str] = {}
+if uploaded_files:
+    st.caption("Optionally override the auto-detected category for any file.")
+    for uploaded_file in uploaded_files:
+        category_by_file[uploaded_file.name] = st.selectbox(
+            f"Category — {uploaded_file.name}",
+            options=["auto-detect", "system", "software", "supporting_interface"],
+            key=f"category_{uploaded_file.name}",
+        )
+
+    if st.button("Parse uploaded requirement files", use_container_width=True):
+        multipart_files = [
+            ("files", (f.name, f.getvalue(), f.type or "application/octet-stream"))
+            for f in uploaded_files
+        ]
+        categories = [
+            "" if category_by_file[f.name] == "auto-detect" else category_by_file[f.name]
+            for f in uploaded_files
+        ]
+        with st.spinner("Parsing and consolidating requirement files..."):
+            ingest_response = requests.post(
+                f"{BACKEND_BASE_URL}/api/v1/requirements/ingest",
+                files=multipart_files,
+                data={"categories": categories, "feature": selected_feature},
+                timeout=60,
+            )
+        if not ingest_response.ok:
+            st.error(f"Could not parse uploaded files: {error_message(ingest_response)}")
+        else:
+            st.session_state["ingestion_result"] = ingest_response.json()
+
+ingestion_result = st.session_state.get("ingestion_result")
+consolidated_requirements_json = None
+if ingestion_result:
+    meta = ingestion_result["meta"]
+    errors = [f for f in ingestion_result["findings"] if f["severity"] == "ERROR"]
+    warnings = [f for f in ingestion_result["findings"] if f["severity"] == "WARNING"]
+
+    st.markdown(
+        f"**Parsed {meta['total_requirements']} requirement(s) from {len(meta['source_files'])} file(s).**"
+    )
+    st.dataframe(
+        [
+            {
+                "file": source["file_name"],
+                "category": source["category"],
+                "sheets": ", ".join(source["sheets_read"]),
+                "requirements": source["requirement_count"],
+            }
+            for source in meta["source_files"]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if errors:
+        with st.expander(f"⚠️ {len(errors)} error(s) found", expanded=True):
+            for finding in errors:
+                st.error(f"[{finding.get('source_file', '-')}] {finding['message']}")
+    if warnings:
+        with st.expander(f"{len(warnings)} warning(s) found"):
+            for finding in warnings:
+                st.warning(f"[{finding.get('source_file', '-')}] {finding['message']}")
+
+    with st.expander("View consolidated requirements JSON"):
+        st.json(ingestion_result)
+
+    if ingestion_result["requirements"]:
+        consolidated_requirements_json = json.dumps(ingestion_result, indent=2)
+
 requirements = st.text_area(
     "Complete requirement set",
+    value=consolidated_requirements_json or "",
     height=260,
     placeholder="Enter one or more related automotive requirements, including their IDs where available.",
 )
-execute_disabled = not project_agents or not agent_status["invocation_configuration_available"]
+execute_disabled = (
+    not project_agents
+    or not agent_status["invocation_configuration_available"]
+    or not selected_feature
+)
 
 if st.button(
     "Execute test specification workflow",
@@ -171,11 +275,18 @@ if st.button(
     use_container_width=True,
 ):
     if not requirements.strip():
-        st.error("Enter at least one requirement before starting the workflow.")
+        st.error("Enter at least one requirement before starting the workflow, or parse an uploaded file set.")
     else:
+        effective_requirements = requirements
+        if custom_feature_description:
+            effective_requirements = (
+                f"Feature: {selected_feature}\n"
+                f"Feature description: {custom_feature_description}\n\n"
+                f"{requirements}"
+            )
         start_response = requests.post(
             f"{BACKEND_BASE_URL}/api/v1/workflow/test-specification",
-            json={"project": project_id, "requirements": requirements},
+            json={"project": project_id, "requirements": effective_requirements},
             timeout=30,
         )
         if not start_response.ok:

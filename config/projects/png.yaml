@@ -1,7 +1,7 @@
 project:
-  id: adas
-  name: ADAS
-  description: Advanced Driver Assistance Systems project configuration.
+  id: png
+  name: PNG
+  description: PNG project configuration.
 
 features:
   diagnostics:

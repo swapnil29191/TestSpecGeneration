@@ -7,7 +7,7 @@ def test_loads_project_configurations() -> None:
     projects = load_projects(Path("config/projects"))
     project_ids = {project["id"] for project in projects}
 
-    assert {"gateway", "zonal", "adas"} <= project_ids
+    assert {"gateway", "zonal", "png"} <= project_ids
 
 
 def test_gateway_has_expected_features() -> None:
